@@ -4134,7 +4134,7 @@ def send_to_woa(
         payload = {
             "msgtype": "markdown",
             "markdown": {
-                "content": batch_content
+                "text": batch_content
             }
         }
 
