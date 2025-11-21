@@ -81,8 +81,11 @@ ios
 ai
 !gai
 人工智能
+vibe coding
+ai编程
 
 自动驾驶
+新能源汽车
 
 机器人
 
@@ -111,3 +114,6 @@ ai
 宇宙
 飞船
 航空
+
+vue3
+react19
