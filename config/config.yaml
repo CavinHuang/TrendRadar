@@ -25,7 +25,7 @@ crawler:
 
 # 推送模式选择
 report:
-  mode: "daily" # 可选: "daily"|"incremental"|"current"
+  mode: "incremental" # 可选: "daily"|"incremental"|"current"
   rank_threshold: 5 # 排名高亮阈值
   sort_by_position_first: false # 排序优先级：true=先按配置位置排序，false=先按热点条数排序
   max_news_per_keyword: 0 # 每个关键词最大显示数量，0=不限制
@@ -86,6 +86,7 @@ notification:
     ntfy_topic: "" # ntfy主题名称
     ntfy_token: "" # ntfy访问令牌（可选，用于私有主题）
     bark_url: "" # Bark推送URL（格式：https://api.day.app/your_device_key 或自建服务器地址）
+    woa_webhook_url: "" # WOA机器人的完整 webhook URL（如：https://xz.wps.cn/api/v1/webhook/send?key=xxx）
 
 # 用于让关注度更高的新闻在更前面显示，即用算法重新组合不同平台的热搜排序形成你侧重的热搜，合起来是 1 就行
 weight:
@@ -117,3 +118,13 @@ platforms:
     name: "抖音"
   - id: "zhihu"
     name: "知乎"
+  - id: "github"
+    name: "github"
+  - id: "producthunt"
+    name: 'productHunt'
+  - id: "sspai"
+    name: "少数派"
+  - id: "hackernews"
+    name: "Hacker News"
+  - id: "hupu"
+    name: "虎扑"

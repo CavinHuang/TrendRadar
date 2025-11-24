@@ -201,6 +201,11 @@ def load_config():
     config["BARK_URL"] = os.environ.get("BARK_URL", "").strip() or webhooks.get(
         "bark_url", ""
     )
+    
+    # woa配置
+    config["WOA_WEBHOOK_URL"] = os.environ.get("WOA_WEBHOOK_URL", "").strip() or webhooks.get(
+        "woa_webhook_url", ""
+    )
 
     # 输出配置来源信息
     notification_sources = []
@@ -226,6 +231,10 @@ def load_config():
     if config["NTFY_SERVER_URL"] and config["NTFY_TOPIC"]:
         server_source = "环境变量" if os.environ.get("NTFY_SERVER_URL") else "配置文件"
         notification_sources.append(f"ntfy({server_source})")
+    
+    if config["WOA_WEBHOOK_URL"]:
+        source = "环境变量" if os.environ.get("WOA_WEBHOOK_URL") else "配置文件"
+        notification_sources.append(f"WOA({source})")
 
     if config["BARK_URL"]:
         bark_source = "环境变量" if os.environ.get("BARK_URL") else "配置文件"
@@ -3412,6 +3421,7 @@ def send_to_notifications(
     ntfy_topic = CONFIG["NTFY_TOPIC"]
     ntfy_token = CONFIG.get("NTFY_TOKEN", "")
     bark_url = CONFIG["BARK_URL"]
+    woa_webhook_url = CONFIG.get("WOA_WEBHOOK_URL", "")
 
     update_info_to_send = update_info if CONFIG["SHOW_VERSION_UPDATE"] else None
 
@@ -3479,6 +3489,17 @@ def send_to_notifications(
             html_file_path,
             email_smtp_server,
             email_smtp_port,
+        )
+    
+    # 发送到 WOA
+    if woa_webhook_url:
+        results["woa"] = send_to_woa(
+            woa_webhook_url,
+            report_data,
+            report_type,
+            update_info_to_send,
+            proxy_url,
+            mode,
         )
 
     if not results:
@@ -4265,6 +4286,104 @@ def send_to_bark(
         return False
 
 
+def send_to_woa(
+    webhook_url: str,
+    report_data: Dict,
+    report_type: str,
+    update_info: Optional[Dict] = None,
+    proxy_url: Optional[str] = None,
+    mode: str = "daily",
+) -> bool:
+    """发送到WOA（支持分批发送，使用 markdown 格式）"""
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    
+    proxies = None
+    if proxy_url:
+        proxies = {"http": proxy_url, "https": proxy_url}
+
+    # 获取分批内容（使用类似企业微信的格式）
+    batches = split_content_into_batches(report_data, "wework", update_info, mode=mode)
+
+    print(f"WOA消息分为 {len(batches)} 批次发送 [{report_type}]")
+
+    # 逐批发送
+    success_count = 0
+    for i, batch_content in enumerate(batches, 1):
+        batch_size = len(batch_content.encode("utf-8"))
+        print(
+            f"发送WOA第 {i}/{len(batches)} 批次，大小：{batch_size} 字节 [{report_type}]"
+        )
+
+        # 添加批次标识
+        if len(batches) > 1:
+            batch_header = f"**[第 {i}/{len(batches)} 批次]**\n\n"
+            batch_content = batch_header + batch_content
+
+        # WOA 使用 markdown 消息类型
+        payload = {
+            "msgtype": "markdown",
+            "markdown": {
+                "text": batch_content
+            }
+        }
+
+        try:
+            response = requests.post(
+                webhook_url, headers=headers, json=payload, proxies=proxies, timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                # WOA 返回格式可能类似企业微信，检查 errcode
+                if result.get("errcode") == 0 or result.get("code") == 0 or not result.get("errcode"):
+                    print(f"WOA第 {i}/{len(batches)} 批次发送成功 [{report_type}]")
+                    success_count += 1
+                    # 批次间间隔
+                    if i < len(batches):
+                        time.sleep(CONFIG["BATCH_SEND_INTERVAL"])
+                else:
+                    error_msg = result.get("errmsg") or result.get("message", "未知错误")
+                    print(
+                        f"WOA第 {i}/{len(batches)} 批次发送失败 [{report_type}]，错误：{error_msg}"
+                    )
+            else:
+                print(
+                    f"WOA第 {i}/{len(batches)} 批次发送失败 [{report_type}]，状态码：{response.status_code}"
+                )
+                try:
+                    print(f"错误详情：{response.text}")
+                except:
+                    pass
+        except requests.exceptions.Timeout:
+            print(f"WOA第 {i}/{len(batches)} 批次请求超时 [{report_type}]，进行重试")
+            # 重试一次
+            try:
+                time.sleep(2)
+                retry_response = requests.post(
+                    webhook_url, headers=headers, json=payload, proxies=proxies, timeout=30
+                )
+                if retry_response.status_code == 200:
+                    print(f"WOA第 {i}/{len(batches)} 批次重试成功 [{report_type}]")
+                    success_count += 1
+                else:
+                    print(f"WOA第 {i}/{len(batches)} 批次重试失败 [{report_type}]")
+            except Exception as retry_error:
+                print(f"WOA第 {i}/{len(batches)} 批次重试异常 [{report_type}]：{retry_error}")
+        except Exception as e:
+            print(f"WOA第 {i}/{len(batches)} 批次发送异常 [{report_type}]：{e}")
+
+    # 判断整体发送是否成功
+    if success_count == len(batches):
+        print(f"WOA所有 {len(batches)} 批次发送完成 [{report_type}]")
+        return True
+    elif success_count > 0:
+        print(f"WOA部分发送成功：{success_count}/{len(batches)} 批次 [{report_type}]")
+        return True
+    else:
+        print(f"WOA发送完全失败 [{report_type}]")
+        return False
+
+
 # === 主分析器 ===
 class NewsAnalyzer:
     """新闻分析器"""
@@ -4378,6 +4497,7 @@ class NewsAnalyzer:
                 ),
                 (CONFIG["NTFY_SERVER_URL"] and CONFIG["NTFY_TOPIC"]),
                 CONFIG["BARK_URL"],
+                CONFIG.get("WOA_WEBHOOK_URL", ""),
             ]
         )
 
